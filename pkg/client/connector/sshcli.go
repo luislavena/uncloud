@@ -29,27 +29,35 @@ type sshCLIDialer struct {
 	config SSHConnectorConfig
 }
 
-// buildDialArgs constructs SSH command arguments for -W flag dialing.
-func (d *sshCLIDialer) buildDialArgs(address string) []string {
+// buildCommonSSHArgs constructs common SSH connection arguments (flags only, without user@host).
+func buildCommonSSHArgs(cfg SSHConnectorConfig) []string {
 	args := []string{}
 
 	// Add connection timeout to fail fast when node is down.
 	args = append(args, "-o", "ConnectTimeout=5")
 
 	// Add port if non-standard.
-	if d.config.Port != 0 && d.config.Port != 22 {
-		args = append(args, "-p", strconv.Itoa(d.config.Port))
+	if cfg.Port != 0 && cfg.Port != 22 {
+		args = append(args, "-p", strconv.Itoa(cfg.Port))
 	}
 
 	// Add identity file if specified.
-	if d.config.KeyPath != "" {
-		args = append(args, "-i", d.config.KeyPath)
+	if cfg.KeyPath != "" {
+		args = append(args, "-i", cfg.KeyPath)
 	}
+
+	return args
+}
+
+// buildDialArgs constructs SSH command arguments for -W flag dialing.
+func (d *sshCLIDialer) buildDialArgs(address string) []string {
+	// Start with common SSH arguments.
+	args := buildCommonSSHArgs(d.config)
 
 	// Add -W flag for stdin/stdout forwarding to target address.
 	args = append(args, "-W", address)
 
-	// Add user@host.
+	// Add user@host (must come after -W flag).
 	args = append(args, d.config.User+"@"+d.config.Host)
 
 	return args
@@ -102,24 +110,12 @@ func (c *SSHCLIConnector) Connect(ctx context.Context) (*grpc.ClientConn, error)
 	return grpcConn, nil
 }
 
-// buildSSHArgs constructs the SSH command arguments.
+// buildSSHArgs constructs the SSH command arguments for dial-stdio.
 func (c *SSHCLIConnector) buildSSHArgs() []string {
-	args := []string{}
+	// Start with common SSH arguments.
+	args := buildCommonSSHArgs(c.config)
 
-	// Add connection timeout to fail fast when node is down.
-	args = append(args, "-o", "ConnectTimeout=5")
-
-	// Add port if non-standard.
-	if c.config.Port != 0 && c.config.Port != 22 {
-		args = append(args, "-p", strconv.Itoa(c.config.Port))
-	}
-
-	// Add identity file if specified (backward compatibility with SSHKeyFile).
-	if c.config.KeyPath != "" {
-		args = append(args, "-i", c.config.KeyPath)
-	}
-
-	// Add user@host.
+	// Add user@host (must come before remote command).
 	args = append(args, c.config.User+"@"+c.config.Host)
 
 	// Add remote command: uncloudd dial-stdio
